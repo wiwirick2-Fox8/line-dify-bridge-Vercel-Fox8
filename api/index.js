@@ -23,14 +23,13 @@ module.exports = async (req, res) => {
       inputs: {
         line_webhook_data: JSON.stringify(req.body)
       },
-      response_mode: "streaming", // Difyに応答を待たないように指示
+      response_mode: "streaming",
       user: req.body.events[0]?.source?.userId || 'unknown-line-user'
     }, {
       headers: {
         'Authorization': `Bearer ${process.env.DIFY_API_KEY}`,
         'Content-Type': 'application/json'
-      },
-      timeout: 1000 // 1秒でタイムアウトさせ、応答を待たない
+      }
     });
   } catch (error) {
     // Difyへのリクエストが失敗しても、LINEには成功応答を返す
