@@ -1,0 +1,16 @@
+{
+  "name": "line-dify-bridge-vercel-fox8",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@line/bot-sdk": "^10.3.0",
+    "axios": "^1.12.2"
+  }
+}
