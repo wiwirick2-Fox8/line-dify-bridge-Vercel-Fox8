@@ -12,19 +12,21 @@ module.exports = async (req, res) => {
     res.status(401).send('Unauthorized');
     return;
   }
+  
+  // 先にLINEに応答を返し、接続を切断させる
+  res.status(200).send('OK');
 
-  // ★★★ Pipedreamの知見を反映した、最重要の修正点 ★★★
-  // req.bodyから、destinationとeventsを明示的に取り出し、
-  // 正しい順序で新しいオブジェクトを再構築する。
-  const rebuiltBody = {
-    destination: req.body.destination,
-    events: req.body.events
-  };
-
+  // ★★★ 最重要の修正点 ★★★
+  // LINEへの応答が終わった後で、Difyへの処理を「待って」実行する
   try {
-    axios.post(process.env.DIFY_API_ENDPOINT, {
+    const rebuiltBody = {
+      destination: req.body.destination,
+      events: req.body.events
+    };
+
+    // await を使って、axiosの処理が完了するのを待つ
+    await axios.post(process.env.DIFY_API_ENDPOINT, {
       inputs: {
-        // 再構築したオブジェクトを文字列化して送信する
         line_webhook_data: JSON.stringify(rebuiltBody)
       },
       response_mode: "streaming",
@@ -36,8 +38,7 @@ module.exports = async (req, res) => {
       }
     });
   } catch (error) {
+    // このエラーはVercelのログにのみ記録される
     console.error('Error sending data to Dify:', error.message);
   }
-
-  res.status(200).send('OK');
 };
