@@ -1,44 +1,45 @@
-const line = require('@line/bot-sdk');
 const axios = require('axios');
 
-const config = {
-  channelSecret: process.env.LINE_CHANNEL_SECRET,
-};
-
 module.exports = async (req, res) => {
-  // LINEの署名検証
-  const signature = req.headers['x-line-signature'];
-  if (!line.validateSignature(JSON.stringify(req.body), config.channelSecret, signature)) {
-    res.status(401).send('Unauthorized');
-    return;
-  }
-  
-  // 先にLINEに応答を返し、接続を切断させる
-  res.status(200).send('OK');
+  // Step 1: まずLINEに即座に応答を返し、接続を開放する
+  res.status(200).send('OK: Request received by Vercel. Attempting to contact Dify.');
+  console.log('✅ [Vercel] LINEからのリクエストを受信。Difyへの処理を開始します。');
 
-  // ★★★ 最重要の修正点 ★★★
-  // LINEへの応答が終わった後で、Difyへの処理を「待って」実行する
   try {
-    const rebuiltBody = {
-      destination: req.body.destination,
-      events: req.body.events
-    };
-
-    // await を使って、axiosの処理が完了するのを待つ
-    await axios.post(process.env.DIFY_API_ENDPOINT, {
+    // Step 2: Difyに送信する、完全に固定された最小限のデータを作成
+    const difyPayload = {
       inputs: {
-        line_webhook_data: JSON.stringify(rebuiltBody)
+        // Difyのテスト用ワークフローで定義した変数名に完全に一致させる
+        test_message: "Hello Dify, this is a minimal test from Vercel!" 
       },
-      response_mode: "streaming",
-      user: req.body.events[0]?.source?.userId || 'unknown-line-user'
-    }, {
-      headers: {
-        'Authorization': `Bearer ${process.env.DIFY_API_KEY}`,
-        'Content-Type': 'application/json'
+      response_mode: "blocking", // 処理の完了を待つ
+      user: "vercel-final-test-user"
+    };
+    console.log('📤 [Vercel] Difyへ送信するデータ:', JSON.stringify(difyPayload));
+
+    // Step 3: Dify APIを呼び出し、awaitで処理の完了を待つ
+    const difyResponse = await axios.post(
+      process.env.DIFY_API_ENDPOINT, 
+      difyPayload,
+      {
+        headers: {
+          'Authorization': `Bearer ${process.env.DIFY_API_KEY}`,
+          'Content-Type': 'application/json'
+        }
       }
+    );
+    
+    // Step 4: Difyからの応答をVercelのログに記録する
+    console.log('✅ [Vercel] Difyからの応答を正常に受信:', {
+      status: difyResponse.status,
+      data: difyResponse.data 
     });
+
   } catch (error) {
-    // このエラーはVercelのログにのみ記録される
-    console.error('Error sending data to Dify:', error.message);
+    // Step 5: もしエラーが発生した場合、その詳細をVercelのログに記録する
+    console.error('❌ [Vercel] Difyへのリクエスト中にエラーが発生:', {
+      message: error.message,
+      response_data: error.response ? error.response.data : 'No response from server'
+    });
   }
 };
