@@ -1,41 +1,36 @@
 const axios = require('axios');
 
 module.exports = async (req, res) => {
-  res.status(200).send('OK: Request received. Attempting to contact Dify.');
-  console.log('✅ [Vercel] LINEからのリクエストを受信。Difyへの処理を開始します。');
+  res.status(200).send('OK');
+  console.log('✅ [Vercel] LINE受信。Postman成功再現コードでDifyへ処理開始。');
 
   try {
     const difyPayload = {
       inputs: {
-        test_message: "Hello Dify, this is the final, correct test from Vercel!" 
+        test_message: "Hello from the Postman-proven Vercel code!"
       },
-      // ★★★ 修正点：workflow_idを追加 ★★★
       workflow_id: process.env.DIFY_WORKFLOW_ID_TEST,
       response_mode: "blocking",
-      user: "vercel-final-test-user"
+      user: "vercel-final-postman-test"
     };
-    console.log('📤 [Vercel] Difyへ送信するデータ:', JSON.stringify(difyPayload));
-
-    const difyResponse = await axios.post(
-      process.env.DIFY_API_ENDPOINT, 
-      difyPayload,
-      {
-        headers: {
-          'Authorization': `Bearer ${process.env.DIFY_API_KEY}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
     
-    console.log('✅ [Vercel] Difyからの応答を正常に受信:', {
-      status: difyResponse.status,
-      data: difyResponse.data 
+    // ★★★ PipedreamとPostmanの成功事例を完全に再現 ★★★
+    const difyResponse = await axios({
+        method: 'POST',
+        url: process.env.DIFY_API_ENDPOINT,
+        headers: {
+            'Authorization': `Bearer ${process.env.DIFY_API_KEY}`,
+            'Content-Type': 'application/json'
+        },
+        data: difyPayload // Bodyは、必ず`data`キーに格納する
     });
+    
+    console.log('✅ [Vercel] Difyからの応答を正常に受信:', difyResponse.data);
 
   } catch (error) {
     console.error('❌ [Vercel] Difyへのリクエスト中にエラーが発生:', {
       message: error.message,
-      response_data: error.response ? error.response.data : 'No response from server'
+      response_data: error.response ? error.response.data : 'No response'
     });
   }
 };
