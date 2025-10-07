@@ -1,32 +1,38 @@
-const axios = require('axios');
+// axiosはもう使いません
 
 module.exports = async (req, res) => {
-  // LINEからの署名検証やデータ処理は、このテストではすべて無視する
-
-  // LINEには、まず先に「OK」を返して、処理を継続させる
+  // LINEには、まず先に「OK」を返す
   res.status(200).send('OK');
 
   try {
-    // Difyに、ハードコードされた最小限のデータを送信する
-    await axios.post(process.env.DIFY_API_ENDPOINT, {
-      inputs: {
-        // Difyのテスト用ワークフローで定義した変数名に合わせる
-        test_message: "Hello from Vercel! The time is " + new Date().toISOString()
-      },
-      response_mode: "blocking", // 応答を待つ
-      user: "vercel-connectivity-test-user"
-    }, {
+    // Node.js標準のfetch APIを使って、Difyにリクエストを送信
+    const difyResponse = await fetch(process.env.DIFY_API_ENDPOINT, {
+      method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.DIFY_API_KEY}`,
         'Content-Type': 'application/json'
-      }
+      },
+      body: JSON.stringify({
+        inputs: {
+          test_message: "Hello from Vercel with fetch! The time is " + new Date().toISOString()
+        },
+        response_mode: "blocking",
+        user: "vercel-fetch-test-user"
+      })
     });
-    
-    // Difyへのリクエストが成功したことを、Vercelのログに出力
-    console.log('Successfully sent data to Dify.');
+
+    // Difyからの応答が成功したかを確認
+    if (!difyResponse.ok) {
+      // もし失敗していたら、Difyが返したエラー内容をログに出力
+      const errorData = await difyResponse.json();
+      console.error('Dify API returned an error:', errorData);
+    } else {
+      // 成功したら、その旨をログに出力
+      console.log('Successfully sent data to Dify with fetch. Status:', difyResponse.status);
+    }
 
   } catch (error) {
-    // Difyへのリクエストが失敗した場合、詳細なエラーをVercelのログに出力
-    console.error('Error sending data to Dify:', error.response ? error.response.data : error.message);
+    // ネットワークレベルのエラーをログに出力
+    console.error('Error sending data to Dify with fetch:', error.message);
   }
 };
