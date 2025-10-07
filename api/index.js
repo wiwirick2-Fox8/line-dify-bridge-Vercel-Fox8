@@ -1,5 +1,5 @@
 const line = require('@line/bot-sdk');
-const fetch = require('node-fetch');
+const axios = require('axios'); // axiosを再度使用します
 
 const config = {
   channelSecret: process.env.LINE_CHANNEL_SECRET,
@@ -17,26 +17,27 @@ module.exports = async (req, res) => {
   res.status(200).send('OK');
 
   try {
-    // ★★★ 変更点：awaitキーワードをここから削除 ★★★
-    const difyResponse = fetch(process.env.DIFY_API_ENDPOINT, {
-      method: 'POST',
+    // ★★★ 変更点：axiosを使ってDifyにリクエストを送信 ★★★
+    axios.post(process.env.DIFY_API_ENDPOINT, {
+      inputs: {
+        test_message: "Test with axios (no await): " + new Date().toISOString()
+      },
+      response_mode: "streaming", // 応答を待たないのでstreaming
+      user: "vercel-axios-test-user"
+    }, {
       headers: {
         'Authorization': `Bearer ${process.env.DIFY_API_KEY}`,
         'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        inputs: {
-          test_message: "Test without await: " + new Date().toISOString()
-        },
-        response_mode: "blocking",
-        user: "vercel-await-test-user"
-      })
+      }
+    }).catch(error => {
+        // エラーが発生した場合のみ、Vercelのログに出力
+        console.error('Error sending data to Dify with axios:', error.response ? error.response.data : error.message);
     });
-
-    // このログは、Difyへのリクエストが完了する「前」に表示される
-    console.log('Request to Dify has been sent (without await).');
+    
+    console.log('Request to Dify has been sent (with axios).');
 
   } catch (error) {
-    console.error('Error sending data to Dify:', error.message);
+    // このcatchブロックは、axiosの呼び出し自体が失敗した場合にのみ実行される
+    console.error('Critical error before sending data to Dify:', error.message);
   }
 };
