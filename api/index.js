@@ -2,53 +2,59 @@ const line = require('@line/bot-sdk');
 const fetch = require('node-fetch');
 
 const config = {
-  channelSecret: process.env.LINE_CHANNEL_SECRET,
+    channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
 
+// メインのハンドラ関数
 module.exports = async (req, res) => {
-  // LINEの署名検証
-  try {
-    const signature = req.headers['x-line-signature'];
-    if (!line.validateSignature(JSON.stringify(req.body), config.channelSecret, signature)) {
-      console.error('Signature validation failed.');
-      return res.status(401).send('Unauthorized');
+    // 1. まずLINEからのリクエストの正当性を同期的に検証する
+    try {
+        const signature = req.headers['x-line-signature'];
+        if (!line.validateSignature(JSON.stringify(req.body), config.channelSecret, signature)) {
+            console.error("Signature validation failed");
+            return res.status(401).send('Signature validation failed');
+        }
+    } catch (error) {
+        console.error("Error during signature validation:", error);
+        return res.status(500).send('Error during signature validation');
     }
-  } catch (error) {
-    console.error('Error during signature validation:', error.message);
-    return res.status(400).send('Bad Request');
-  }
 
-  // LINEには、まず先に「OK」を返す
-  res.status(200).send('OK');
+    // ★★★ 最大の変更点 ★★★
+    // 2. LINEには、Difyへの処理を始める前に、即座に応答を返す
+    res.status(200).send('OK');
 
-  try {
-    // Pipedreamの知見を反映：キーの順序を保証した新しいオブジェクトを再構築
-    const rebuiltBody = {
-      destination: req.body.destination,
-      events: req.body.events
-    };
+    // 3. Difyへのリクエストは、LINEへの応答後に「非同期」で実行する
+    //    await を使うことで、Vercel関数は、このfetch処理が完了するまで終了しない
+    try {
+        const rebuiltBody = {
+            destination: req.body.destination,
+            events: req.body.events
+        };
+        
+        const userId = req.body.events && req.body.events[0] && req.body.events[0].source ? req.body.events[0].source.userId : 'unknown-line-user';
 
-    // Difyに本番データを送信
-    fetch(process.env.DIFY_API_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.DIFY_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        inputs: {
-          // 本番用の`Central_Processor`が待つ変数名
-          line_webhook_data: JSON.stringify(rebuiltBody)
-        },
-        response_mode: "streaming",
-        // LINEから受け取った実際のユーザーIDを使用
-        user: req.body.events[0]?.source?.userId || 'unknown-line-user'
-      })
-    }).catch(error => {
-        console.error('Error sending data to Dify with fetch:', error.message);
-    });
+        // Difyにリクエストを送信
+        await fetch(process.env.DIFY_API_ENDPOINT, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${process.env.DIFY_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                inputs: {
+                    line_webhook_data: JSON.stringify(rebuiltBody)
+                },
+                response_mode: "streaming",
+                user: userId,
+                conversation_id: "" // 必要に応じて設定
+            })
+        });
 
-  } catch (error) {
-    console.error('Critical error before sending data to Dify:', error.message);
-  }
+        // Vercelのログに成功したことを記録（オプション）
+        console.log(`Successfully forwarded request to Dify for user: ${userId}`);
+
+    } catch (error) {
+        // もしDifyへのリクエスト自体が失敗した場合、Vercelのログにエラーを記録
+        console.error("Error forwarding request to Dify:", error);
+    }
 };
