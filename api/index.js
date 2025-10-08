@@ -22,12 +22,13 @@ module.exports = async (req, res) => {
   res.status(200).send('OK');
 
   try {
-    // ★★★ 変更点 ★★★
-    // LINEのWebhookデータ（req.body）から、安全にuserIdを抽出する
-    // events配列が存在し、その最初の要素が存在し、その中にsourceがあり、userIdがあることを確認
-    const userId = req.body.events && req.body.events[0] && req.body.events[0].source ? req.body.events[0].source.userId : 'unknown-line-user';
+    // Pipedreamの知見を反映：キーの順序を保証した新しいオブジェクトを再構築
+    const rebuiltBody = {
+      destination: req.body.destination,
+      events: req.body.events
+    };
 
-    // fetch APIを使って、Difyにリクエストを送信
+    // Difyに本番データを送信
     fetch(process.env.DIFY_API_ENDPOINT, {
       method: 'POST',
       headers: {
@@ -36,12 +37,12 @@ module.exports = async (req, res) => {
       },
       body: JSON.stringify({
         inputs: {
-          test_message: "Dynamic user ID test: " + new Date().toISOString()
+          // 本番用の`Central_Processor`が待つ変数名
+          line_webhook_data: JSON.stringify(rebuiltBody)
         },
         response_mode: "streaming",
-        // ★★★ 変更点 ★★★
-        // 抽出したuserIdを、Difyのuserパラメータに設定する
-        user: userId 
+        // LINEから受け取った実際のユーザーIDを使用
+        user: req.body.events[0]?.source?.userId || 'unknown-line-user'
       })
     }).catch(error => {
         console.error('Error sending data to Dify with fetch:', error.message);
