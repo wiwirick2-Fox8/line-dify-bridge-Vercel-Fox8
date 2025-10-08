@@ -1,5 +1,5 @@
 const line = require('@line/bot-sdk');
-const axios = require('axios'); // axiosを再度使用します
+const axios = require('axios');
 
 const config = {
   channelSecret: process.env.LINE_CHANNEL_SECRET,
@@ -17,27 +17,23 @@ module.exports = async (req, res) => {
   res.status(200).send('OK');
 
   try {
-    // ★★★ 変更点：axiosを使ってDifyにリクエストを送信 ★★★
-    axios.post(process.env.DIFY_API_ENDPOINT, {
+    // ★★★ 変更点：awaitを追加し、response_modeをblockingに変更 ★★★
+    const difyResponse = await axios.post(process.env.DIFY_API_ENDPOINT, {
       inputs: {
-        test_message: "Test with axios (no await): " + new Date().toISOString()
+        test_message: "Final test with axios + blocking: " + new Date().toISOString()
       },
-      response_mode: "streaming", // 応答を待たないのでstreaming
-      user: "vercel-axios-test-user"
+      response_mode: "blocking", // Difyからの応答を待つ
+      user: "vercel-axios-blocking-test"
     }, {
       headers: {
         'Authorization': `Bearer ${process.env.DIFY_API_KEY}`,
         'Content-Type': 'application/json'
       }
-    }).catch(error => {
-        // エラーが発生した場合のみ、Vercelのログに出力
-        console.error('Error sending data to Dify with axios:', error.response ? error.response.data : error.message);
     });
     
-    console.log('Request to Dify has been sent (with axios).');
+    console.log('Successfully sent data to Dify with axios + blocking. Status:', difyResponse.status);
 
   } catch (error) {
-    // このcatchブロックは、axiosの呼び出し自体が失敗した場合にのみ実行される
-    console.error('Critical error before sending data to Dify:', error.message);
+    console.error('Error sending data to Dify with axios + blocking:', error.response ? error.response.data : error.message);
   }
 };
