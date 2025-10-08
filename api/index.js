@@ -1,5 +1,5 @@
 const line = require('@line/bot-sdk');
-const axios = require('axios');
+const fetch = require('node-fetch');
 
 const config = {
   channelSecret: process.env.LINE_CHANNEL_SECRET,
@@ -7,33 +7,47 @@ const config = {
 
 module.exports = async (req, res) => {
   // LINEの署名検証
-  const signature = req.headers['x-line-signature'];
-  if (!line.validateSignature(JSON.stringify(req.body), config.channelSecret, signature)) {
-    console.error('Signature validation failed.');
-    return res.status(401).send('Unauthorized');
+  try {
+    const signature = req.headers['x-line-signature'];
+    if (!line.validateSignature(JSON.stringify(req.body), config.channelSecret, signature)) {
+      console.error('Signature validation failed.');
+      return res.status(401).send('Unauthorized');
+    }
+  } catch (error) {
+    console.error('Error during signature validation:', error.message);
+    return res.status(400).send('Bad Request');
   }
 
   // LINEには、まず先に「OK」を返す
   res.status(200).send('OK');
 
   try {
-    // ★★★ 変更点：awaitを追加し、response_modeをblockingに変更 ★★★
-    const difyResponse = await axios.post(process.env.DIFY_API_ENDPOINT, {
-      inputs: {
-        test_message: "Final test with axios + blocking: " + new Date().toISOString()
-      },
-      response_mode: "blocking", // Difyからの応答を待つ
-      user: "vercel-axios-blocking-test"
-    }, {
+    // ★★★ 変更点 ★★★
+    // LINEのWebhookデータ（req.body）から、安全にuserIdを抽出する
+    // events配列が存在し、その最初の要素が存在し、その中にsourceがあり、userIdがあることを確認
+    const userId = req.body.events && req.body.events[0] && req.body.events[0].source ? req.body.events[0].source.userId : 'unknown-line-user';
+
+    // fetch APIを使って、Difyにリクエストを送信
+    fetch(process.env.DIFY_API_ENDPOINT, {
+      method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.DIFY_API_KEY}`,
         'Content-Type': 'application/json'
-      }
+      },
+      body: JSON.stringify({
+        inputs: {
+          test_message: "Dynamic user ID test: " + new Date().toISOString()
+        },
+        response_mode: "streaming",
+        // ★★★ 変更点 ★★★
+        // 抽出したuserIdを、Difyのuserパラメータに設定する
+        user: userId 
+      })
+    }).catch(error => {
+        console.error('Error sending data to Dify with fetch:', error.message);
     });
-    
-    console.log('Successfully sent data to Dify with axios + blocking. Status:', difyResponse.status);
 
   } catch (error) {
-    console.error('Error sending data to Dify with axios + blocking:', error.response ? error.response.data : error.message);
+    console.error('Critical error before sending data to Dify:', error.message);
   }
 };
