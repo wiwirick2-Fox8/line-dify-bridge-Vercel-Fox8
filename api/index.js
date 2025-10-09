@@ -44,7 +44,7 @@ module.exports = async (req, res) => {
                 inputs: {
                     line_webhook_data: JSON.stringify(rebuiltBody)
                 },
-                response_mode: "streaming",
+                response_mode: "blocking",
                 user: userId,
                 conversation_id: "" // 必要に応じて設定
             })
