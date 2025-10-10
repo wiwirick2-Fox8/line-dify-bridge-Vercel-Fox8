@@ -1,8 +1,8 @@
 const line = require('@line/bot-sdk');
 const fetch = require('node-fetch');
 
-// ★★★ ログ追加点１：コードのバージョンを明確にする ★★★
-const SCRIPT_VERSION = "v3_final_stable_1010";
+// コードのバージョンを明確にする
+const SCRIPT_VERSION = "v4_fire_and_forget_stable_1010";
 
 const config = {
     channelSecret: process.env.LINE_CHANNEL_SECRET,
@@ -16,7 +16,6 @@ module.exports = async (req, res) => {
         const signature = req.headers['x-line-signature'];
         if (!line.validateSignature(JSON.stringify(req.body), config.channelSecret, signature)) {
             console.error(`[${SCRIPT_VERSION}] Signature validation failed.`);
-            // 署名検証失敗時は、ここで処理を終了し、LINEにエラーを返す
             return res.status(401).send('Signature validation failed');
         }
     } catch (error) {
@@ -24,7 +23,9 @@ module.exports = async (req, res) => {
         return res.status(500).send('Error during signature validation');
     }
 
-    // 2. Difyへのリクエストを先に実行し、完了まで待つ
+    // ★★★ 最終的なアーキテクチャ ★★★
+    // 2. Difyへのリクエストを「待たずに」投げる (Fire and Forget)
+    //    LINEへの応答よりも先に実行することで、リクエストが確実に発行されることを保証する。
     try {
         const rebuiltBody = {
             destination: req.body.destination,
@@ -32,35 +33,36 @@ module.exports = async (req, res) => {
         };
         const userId = req.body.events?.[0]?.source?.userId || 'unknown-line-user';
 
-        console.log(`[${SCRIPT_VERSION}] Sending request to Dify. User: ${userId}, Mode: blocking`);
+        const difyPayload = {
+            inputs: {
+                line_webhook_data: JSON.stringify(rebuiltBody)
+            },
+            // Dify側が即時応答を返すので、blockingでOK
+            response_mode: "blocking", 
+            user: userId,
+            conversation_id: ""
+        };
 
-        const fetchResponse = await fetch(process.env.DIFY_API_ENDPOINT, {
+        console.log(`[${SCRIPT_VERSION}] Sending request to Dify. User: ${userId}`);
+
+        // await を使わないことで、Vercelはこの処理の完了を待たない
+        fetch(process.env.DIFY_API_ENDPOINT, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${process.env.DIFY_API_KEY}`,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                inputs: {
-                    line_webhook_data: JSON.stringify(rebuiltBody)
-                },
-                response_mode: "blocking",
-                user: userId,
-                conversation_id: ""
-            })
+            body: JSON.stringify(difyPayload)
+        }).catch(error => {
+            // fetch自体が失敗した場合（DNS解決エラーなど）のログ
+            console.error(`[${SCRIPT_VERSION}] Fetch request to Dify failed:`, error);
         });
-        
-        console.log(`[${SCRIPT_VERSION}] Received response from Dify. Status: ${fetchResponse.status}`);
-        
-        if (!fetchResponse.ok) {
-            const errorBody = await fetchResponse.text();
-            console.error(`[${SCRIPT_VERSION}] Dify returned an error. Status: ${fetchResponse.status}, Body: ${errorBody}`);
-        }
 
     } catch (error) {
-        console.error(`[${SCRIPT_VERSION}] Critical error forwarding request to Dify:`, error);
+        console.error(`[${SCRIPT_VERSION}] Critical error preparing request to Dify:`, error);
     }
 
-    // 3. すべての非同期処理が終わった後で、最後にLINEに応答を返す
+    // 3. Difyへのリクエストを投げた後、すぐにLINEに応答を返す
+    //    これにより、Vercel関数の実行時間は最小限に抑えられる
     res.status(200).send('OK');
 };
