@@ -1,8 +1,7 @@
 const line = require('@line/bot-sdk');
 const fetch = require('node-fetch');
 
-// コードのバージョンを明確にする
-const SCRIPT_VERSION = "v4_fire_and_forget_stable_1010";
+const SCRIPT_VERSION = "v5_full_error_logging_1011";
 
 const config = {
     channelSecret: process.env.LINE_CHANNEL_SECRET,
@@ -23,9 +22,7 @@ module.exports = async (req, res) => {
         return res.status(500).send('Error during signature validation');
     }
 
-    // ★★★ 最終的なアーキテクチャ ★★★
-    // 2. Difyへのリクエストを「待たずに」投げる (Fire and Forget)
-    //    LINEへの応答よりも先に実行することで、リクエストが確実に発行されることを保証する。
+    // 2. Difyへのリクエストを「待たずに」投げる
     try {
         const rebuiltBody = {
             destination: req.body.destination,
@@ -37,15 +34,14 @@ module.exports = async (req, res) => {
             inputs: {
                 line_webhook_data: JSON.stringify(rebuiltBody)
             },
-            // Dify側が即時応答を返すので、blockingでOK
-            response_mode: "blocking", 
+            response_mode: "streaming", // Fire and ForgetなのでstreamingでOK
             user: userId,
             conversation_id: ""
         };
 
         console.log(`[${SCRIPT_VERSION}] Sending request to Dify. User: ${userId}`);
 
-        // await を使わないことで、Vercelはこの処理の完了を待たない
+        // fetchの処理をPromiseとして扱い、エラーを捕捉する
         fetch(process.env.DIFY_API_ENDPOINT, {
             method: 'POST',
             headers: {
@@ -53,16 +49,25 @@ module.exports = async (req, res) => {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(difyPayload)
-        }).catch(error => {
-            // fetch自体が失敗した場合（DNS解決エラーなど）のログ
-            console.error(`[${SCRIPT_VERSION}] Fetch request to Dify failed:`, error);
+        })
+        .then(fetchResponse => {
+            // ★★★ ここが重要 ★★★
+            // Difyからの応答ステータスを非同期でログに出力
+            console.log(`[${SCRIPT_VERSION}] Fetch response status: ${fetchResponse.status}`);
+            if (!fetchResponse.ok) {
+                return fetchResponse.text().then(text => {
+                    console.error(`[${SCRIPT_VERSION}] Fetch failed with status ${fetchResponse.status}: ${text}`);
+                });
+            }
+        })
+        .catch(error => {
+            console.error(`[${SCRIPT_VERSION}] Fetch request itself failed:`, error);
         });
 
     } catch (error) {
         console.error(`[${SCRIPT_VERSION}] Critical error preparing request to Dify:`, error);
     }
 
-    // 3. Difyへのリクエストを投げた後、すぐにLINEに応答を返す
-    //    これにより、Vercel関数の実行時間は最小限に抑えられる
+    // 3. すぐにLINEに応答を返す
     res.status(200).send('OK');
 };
