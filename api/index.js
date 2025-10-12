@@ -1,7 +1,7 @@
 const line = require('@line/bot-sdk');
 const fetch = require('node-fetch');
 
-const SCRIPT_VERSION = "v10_final_stable_architecture_1012";
+const SCRIPT_VERSION = "v11_final_streaming_architecture_1012";
 
 const config = {
     channelSecret: process.env.LINE_CHANNEL_SECRET,
@@ -10,7 +10,7 @@ const config = {
 module.exports = async (req, res) => {
     console.log(`[${SCRIPT_VERSION}] Function started.`);
 
-    // 1. LINE署名検証
+    // 1. LINE署名検証 (変更なし)
     try {
         const signature = req.headers['x-line-signature'];
         if (!line.validateSignature(JSON.stringify(req.body), config.channelSecret, signature)) {
@@ -22,7 +22,7 @@ module.exports = async (req, res) => {
         return res.status(500).send('Error during signature validation');
     }
 
-    // 2. Difyへのリクエストを先に実行し、即時応答を待つ
+    // 2. Difyへのリクエストを先に実行し、最初の応答（ストリーム開始）まで待つ
     try {
         const rebuiltBody = {
             destination: req.body.destination,
@@ -30,7 +30,7 @@ module.exports = async (req, res) => {
         };
         const userId = req.body.events?.[0]?.source?.userId || 'unknown-line-user';
 
-        console.log(`[${SCRIPT_VERSION}] Sending request to Dify. User: ${userId}, Mode: blocking`);
+        console.log(`[${SCRIPT_VERSION}] Sending request to Dify. User: ${userId}, Mode: streaming`);
 
         const fetchResponse = await fetch(process.env.DIFY_API_ENDPOINT, {
             method: 'POST',
@@ -42,13 +42,14 @@ module.exports = async (req, res) => {
                 inputs: {
                     line_webhook_data: JSON.stringify(rebuiltBody)
                 },
-                response_mode: "blocking",
+                // ★★★ ここが最後の修正点 ★★★
+                response_mode: "streaming", // "blocking" から "streaming" に戻す
                 user: userId,
                 conversation_id: ""
             })
         });
         
-        console.log(`[${SCRIPT_VERSION}] Received response from Dify. Status: ${fetchResponse.status}`);
+        console.log(`[${SCRIPT_VERSION}] Received initial response from Dify. Status: ${fetchResponse.status}`);
         
         if (!fetchResponse.ok) {
             const errorBody = await fetchResponse.text();
@@ -59,6 +60,6 @@ module.exports = async (req, res) => {
         console.error(`[${SCRIPT_VERSION}] Critical error forwarding request to Dify:`, error);
     }
 
-    // 3. Difyからの応答を受け取った後で、最後にLINEに応答を返す
+    // 3. Difyからの最初の応答を受け取った後で、LINEに応答を返す
     res.status(200).send('OK');
 };
