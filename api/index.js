@@ -1,7 +1,7 @@
 const line = require('@line/bot-sdk');
 const fetch = require('node-fetch');
 
-const SCRIPT_VERSION = "v3_repro_success_1012"; // バージョン名を再現テスト用に変更
+const SCRIPT_VERSION = "v10_final_stable_architecture_1012";
 
 const config = {
     channelSecret: process.env.LINE_CHANNEL_SECRET,
@@ -22,7 +22,7 @@ module.exports = async (req, res) => {
         return res.status(500).send('Error during signature validation');
     }
 
-    // 2. Difyへのリクエストを先に実行し、完了まで待つ
+    // 2. Difyへのリクエストを先に実行し、即時応答を待つ
     try {
         const rebuiltBody = {
             destination: req.body.destination,
@@ -59,6 +59,6 @@ module.exports = async (req, res) => {
         console.error(`[${SCRIPT_VERSION}] Critical error forwarding request to Dify:`, error);
     }
 
-    // 3. すべての非同期処理が終わった後で、最後にLINEに応答を返す
+    // 3. Difyからの応答を受け取った後で、最後にLINEに応答を返す
     res.status(200).send('OK');
 };
