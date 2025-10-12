@@ -1,11 +1,7 @@
 const line = require('@line/bot-sdk');
 const fetch = require('node-fetch');
-// ★★★ ここが最後の、そして唯一の修正点 ★★★
-// httpではなく、httpsモジュールをインポートする
-const https = require('https');
-const agent = new https.Agent({ keepAlive: false });
 
-const SCRIPT_VERSION = "v8_final_https_close_1012";
+const SCRIPT_VERSION = "v3_repro_success_1012"; // バージョン名を再現テスト用に変更
 
 const config = {
     channelSecret: process.env.LINE_CHANNEL_SECRET,
@@ -14,7 +10,7 @@ const config = {
 module.exports = async (req, res) => {
     console.log(`[${SCRIPT_VERSION}] Function started.`);
 
-    // 1. LINE署名検証 (変更なし)
+    // 1. LINE署名検証
     try {
         const signature = req.headers['x-line-signature'];
         if (!line.validateSignature(JSON.stringify(req.body), config.channelSecret, signature)) {
@@ -26,7 +22,7 @@ module.exports = async (req, res) => {
         return res.status(500).send('Error during signature validation');
     }
 
-    // 2. Difyへのリクエストを「待たずに」投げる
+    // 2. Difyへのリクエストを先に実行し、完了まで待つ
     try {
         const rebuiltBody = {
             destination: req.body.destination,
@@ -34,34 +30,35 @@ module.exports = async (req, res) => {
         };
         const userId = req.body.events?.[0]?.source?.userId || 'unknown-line-user';
 
-        const difyPayload = {
-            inputs: {
-                line_webhook_data: JSON.stringify(rebuiltBody)
-            },
-            response_mode: "streaming",
-            user: userId,
-            conversation_id: ""
-        };
+        console.log(`[${SCRIPT_VERSION}] Sending request to Dify. User: ${userId}, Mode: blocking`);
 
-        console.log(`[${SCRIPT_VERSION}] Sending request to Dify. User: ${userId}`);
-
-        fetch(process.env.DIFY_API_ENDPOINT, {
+        const fetchResponse = await fetch(process.env.DIFY_API_ENDPOINT, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${process.env.DIFY_API_KEY}`,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(difyPayload),
-            // 毎回新しいHTTPSコネクションを使うようにエージェントを指定
-            agent: agent 
-        }).catch(error => {
-            console.error(`[${SCRIPT_VERSION}] Fetch request failed:`, error);
+            body: JSON.stringify({
+                inputs: {
+                    line_webhook_data: JSON.stringify(rebuiltBody)
+                },
+                response_mode: "blocking",
+                user: userId,
+                conversation_id: ""
+            })
         });
+        
+        console.log(`[${SCRIPT_VERSION}] Received response from Dify. Status: ${fetchResponse.status}`);
+        
+        if (!fetchResponse.ok) {
+            const errorBody = await fetchResponse.text();
+            console.error(`[${SCRIPT_VERSION}] Dify returned an error. Status: ${fetchResponse.status}, Body: ${errorBody}`);
+        }
 
     } catch (error) {
-        console.error(`[${SCRIPT_VERSION}] Critical error preparing request:`, error);
+        console.error(`[${SCRIPT_VERSION}] Critical error forwarding request to Dify:`, error);
     }
 
-    // 3. すぐにLINEに応答を返す
+    // 3. すべての非同期処理が終わった後で、最後にLINEに応答を返す
     res.status(200).send('OK');
 };
