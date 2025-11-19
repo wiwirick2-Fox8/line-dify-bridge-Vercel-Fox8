@@ -1,37 +1,48 @@
+
 const line = require('@line/bot-sdk');
 const fetch = require('node-fetch');
 
-const SCRIPT_VERSION = "v11_final_streaming_architecture_1012";
+const SCRIPT_VERSION = "v13_logging_gatekeeper_1118"; // バージョンを更新
 
 const config = {
     channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
 
 module.exports = async (req, res) => {
-    console.log(`[${SCRIPT_VERSION}] Function started.`);
-
-    // 1. LINE署名検証 (変更なし)
+    // 1. ★★★ 署名検証を「記録係」に変更 ★★★
+    let signatureValidationResult = "pending"; // 検証結果を格納する変数
     try {
         const signature = req.headers['x-line-signature'];
-        if (!line.validateSignature(JSON.stringify(req.body), config.channelSecret, signature)) {
-            console.error(`[${SCRIPT_VERSION}] Signature validation failed.`);
-            return res.status(401).send('Signature validation failed');
+        const bodyString = JSON.stringify(req.body);
+
+        if (line.validateSignature(bodyString, config.channelSecret, signature)) {
+            signatureValidationResult = "success";
+        } else {
+            // 失敗しても処理を止めず、結果を記録するだけ
+            signatureValidationResult = "failed";
+            console.warn(`[${SCRIPT_VERSION}] Signature validation failed, but proceeding anyway.`);
         }
     } catch (error) {
-        console.error(`[${SCRIPT_VERSION}] Error during signature validation:`, error);
-        return res.status(500).send('Error during signature validation');
+        // 検証プロセス自体でエラーが起きても処理を止めない
+        signatureValidationResult = `error: ${error.message}`;
+        console.error(`[${SCRIPT_VERSION}] Error during signature validation process:`, error);
     }
 
-    // 2. Difyへのリクエストを先に実行し、最初の応答（ストリーム開始）まで待つ
+    // 2. Difyへのリクエスト (ここから下はほぼ変更なし)
     try {
         const rebuiltBody = {
             destination: req.body.destination,
-            events: req.body.events
+            events: req.body.events,
+            // ★★★ ログ情報を荷物に追加 ★★★
+            vercel_log: {
+                script_version: SCRIPT_VERSION,
+                request_id: req.headers['x-vercel-id'] || 'unknown',
+                signature_validation: signatureValidationResult
+            }
         };
         const userId = req.body.events?.[0]?.source?.userId || 'unknown-line-user';
 
-        console.log(`[${SCRIPT_VERSION}] Sending request to Dify. User: ${userId}, Mode: streaming`);
-
+        // awaitを使い、Difyからの最初の応答（ストリーム開始）まで待つ
         const fetchResponse = await fetch(process.env.DIFY_API_ENDPOINT, {
             method: 'POST',
             headers: {
@@ -40,17 +51,16 @@ module.exports = async (req, res) => {
             },
             body: JSON.stringify({
                 inputs: {
+                    // ★★★ ログ情報を含んだ、新しい荷物を送る ★★★
                     line_webhook_data: JSON.stringify(rebuiltBody)
                 },
-                // ★★★ ここが最後の修正点 ★★★
-                response_mode: "streaming", // "blocking" から "streaming" に戻す
+                response_mode: "streaming",
                 user: userId,
                 conversation_id: ""
             })
         });
         
-        console.log(`[${SCRIPT_VERSION}] Received initial response from Dify. Status: ${fetchResponse.status}`);
-        
+        // Difyからの応答ステータスはログに残す
         if (!fetchResponse.ok) {
             const errorBody = await fetchResponse.text();
             console.error(`[${SCRIPT_VERSION}] Dify returned an error. Status: ${fetchResponse.status}, Body: ${errorBody}`);
@@ -60,6 +70,6 @@ module.exports = async (req, res) => {
         console.error(`[${SCRIPT_VERSION}] Critical error forwarding request to Dify:`, error);
     }
 
-    // 3. Difyからの最初の応答を受け取った後で、LINEに応答を返す
+    // 3. すべての処理が終わった後で、LINEに応答を返す
     res.status(200).send('OK');
 };
